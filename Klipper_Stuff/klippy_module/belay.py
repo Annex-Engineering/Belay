@@ -1,4 +1,4 @@
-# Support for an extruder-syncing sensor as an add-on for Trad Rack
+# Belay extruder-syncing sensor support
 #
 # Copyright (C) 2023 Ryan Ghosh <rghosh776@gmail.com>
 #
@@ -6,20 +6,29 @@
 DIRECTION_UPDATE_INTERVAL = 0.1
 POSITION_TIME_DIFF = 0.3
 
-class TradRackExtruderSyncSensor:
+class Belay:
     def __init__(self, config):
         self.printer = config.get_printer()
         self.reactor = self.printer.get_reactor()
 
+        # initial type-specific setup
+        type_options = ['trad_rack', 'extruder_stepper']
+        self.type = config.getchoice('extruder_type',
+                                     {t: t for t in type_options})
+        if self.type == 'trad_rack':
+            enable_events = ["trad_rack:synced_to_extruder"]
+            disable_events = ["trad_rack:unsyncing_from_extruder"]
+            self.enable_initial = False
+        elif self.type == 'extruder_stepper':
+            self.extruder_stepper_name = config.get('extruder_stepper_name')
+            enable_events = []
+            disable_events = []
+            self.enable_initial = True
+
         # register event handlers
         self.printer.register_event_handler("klippy:connect",
                                             self.handle_connect)
-        enable_events = [
-            "trad_rack:synced_to_extruder"
-        ]
-        disable_events = [
-            "trad_rack:unsyncing_from_extruder"
-        ]
+        self.printer.register_event_handler("klippy:ready", self.handle_ready)
         for event in enable_events:
             self.printer.register_event_handler(event, self.handle_enable)
         for event in disable_events:
@@ -39,6 +48,7 @@ class TradRackExtruderSyncSensor:
             'debug_level', default=0., minval=0., maxval=2.)
 
         # other variables
+        self.name = config.get_name().split()[1]
         self.enabled = False
         self.last_state = False
         self.last_direction = True
@@ -49,13 +59,35 @@ class TradRackExtruderSyncSensor:
         self.toolhead = None
         self.update_direction_timer = self.reactor.register_timer(
             self.update_direction)
+        
+        # register commands
+        self.gcode.register_mux_command("QUERY_BELAY",
+            "BELAY", self.name, self.cmd_QUERY_BELAY,
+            desc=self.cmd_QUERY_BELAY_help)
+        self.gcode.register_mux_command("BELAY_SET_MULTIPLIER",
+            "BELAY", self.name, self.cmd_BELAY_SET_MULTIPLIER,
+            desc=self.cmd_BELAY_SET_MULTIPLIER_help)
     
     def handle_connect(self):
         self.toolhead = self.printer.lookup_object('toolhead')
-        trad_rack = self.printer.lookup_object('trad_rack')
-        self.set_multiplier = trad_rack.set_fil_driver_multiplier
-        self.enable_conditions.append(trad_rack.is_fil_driver_synced)
-        self.disable_conditions.append(trad_rack.is_fil_driver_synced)
+
+        # finish type-specific setup
+        if self.type == 'trad_rack':
+            trad_rack = self.printer.lookup_object('trad_rack')
+            self.set_multiplier = trad_rack.set_fil_driver_multiplier
+            self.enable_conditions.append(trad_rack.is_fil_driver_synced)
+            self.disable_conditions.append(trad_rack.is_fil_driver_synced)
+        elif self.type == 'extruder_stepper':
+            printer_extruder_stepper = self.printer.lookup_object(
+                'extruder_stepper {}'.format(self.extruder_stepper_name))
+            stepper = printer_extruder_stepper.extruder_stepper.stepper
+            base_rotation_dist = stepper.get_rotation_distance()[0]
+            self.set_multiplier = lambda m : stepper.set_rotation_distance(
+                base_rotation_dist / m)
+
+    def handle_ready(self):
+        if self.enable_initial:
+            self.handle_enable()
 
     def handle_enable(self):
         for condition in self.enable_conditions:
@@ -88,13 +120,13 @@ class TradRackExtruderSyncSensor:
             multiplier = self.multiplier_low
         self.set_multiplier(multiplier)
         if (print_msg and self.debug_level >= 1) or self.debug_level >= 2:
-            self.gcode.respond_info("Set filament driver multiplier: %f"
+            self.gcode.respond_info("Set secondary extruder multiplier: %f"
                                     % multiplier)
 
     def reset_multiplier(self):
         self.set_multiplier(1.)
         if self.debug_level >= 1:
-            self.gcode.respond_info("Reset filament driver multiplier")
+            self.gcode.respond_info("Reset secondary extruder multiplier")
 
     def update_direction(self, eventtime):
         mcu = self.printer.lookup_object('mcu')
@@ -107,10 +139,27 @@ class TradRackExtruderSyncSensor:
         self.last_direction = (curr_pos >= past_pos)
         if self.last_direction != prev_direction:
             if self.debug_level >= 2:
-                self.gcode.respond_info("New extruder sensor direction: %s"
+                self.gcode.respond_info("New Belay sensor direction: %s"
                                         % self.last_direction)
             self.update_multiplier(False)
         return eventtime + DIRECTION_UPDATE_INTERVAL
+    
+    cmd_QUERY_BELAY_help = "Report Belay sensor state"
+    def cmd_QUERY_BELAY(self, gcmd):
+        if self.last_state:
+            state_info = 'compressed'
+        else:
+            state_info = 'expanded'
+        self.gcode.respond_info("belay {}: {}".format(self.name, state_info))
+
+    cmd_BELAY_SET_MULTIPLIER_help = ("Sets multiplier_high and/or "
+                                     "multiplier_low. Does not persist across "
+                                     "restarts.")
+    def cmd_BELAY_SET_MULTIPLIER(self, gcmd):
+        self.multiplier_high = gcmd.get_float('HIGH', self.multiplier_high,
+                                              minval=1.)
+        self.multiplier_low = gcmd.get_float('LOW', self.multiplier_low,
+                                            minval=0., maxval=1.)
 
     def get_status(self, eventtime):
         return {
@@ -118,5 +167,5 @@ class TradRackExtruderSyncSensor:
             'enabled': self.enabled
         }
 
-def load_config(config):
-    return TradRackExtruderSyncSensor(config)
+def load_config_prefix(config):
+    return Belay(config)
