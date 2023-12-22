@@ -10,6 +10,8 @@ running.
 - [Assembly](#assembly)
 - [Klipper installation](#klipper-installation)
   - [Klippy module](#klippy-module)
+    - [Klippy module installation](#klippy-module-installation)
+    - [Enabling Moonraker updates](#enabling-moonraker-updates)
   - [Config files](#config-files)
 - [Testing](#testing)
   - [Check sensor polarity](#check-sensor-polarity)
@@ -108,9 +110,63 @@ This section lists the steps to get Belay set up to work with Klipper:
 
 ### Klippy module
 
-Place [belay.py](/Klipper_Stuff/klippy_module/belay.py) in 
-`~/klipper/klippy/extras` and restart the Klipper service to load the
-module.
+This section involves adding the Belay Klippy module(s) to Klipper
+and enabling updates through Moonraker.
+
+#### Klippy module installation
+
+Run the following commands to download and install the Klippy
+module(s):
+
+```
+cd ~
+curl -LJO https://raw.githubusercontent.com/Annex-Engineering/Belay/main/Klipper_Stuff/klippy_module/install.sh
+./install.sh
+```
+
+Then remove the install script with the following command:
+
+```
+rm install.sh
+```
+
+Finally, restart the klipper service using the following command:
+
+```
+sudo systemctl restart klipper
+```
+
+> [!TIP]
+> If you ever need to run the install script again in the future (for
+> example if additional Klippy modules get added), you can do so
+> without recreating the `belay_klippy_module` directory using the
+> following commands:
+> ```
+> cd ~
+> ./belay_klippy_module/Klipper_Stuff/klippy_module/install.sh <branch_name>
+> ```
+> If unspecified, `branch_name` defaults to `main`.
+
+#### Enabling Moonraker updates
+
+To enable updates of the Belay Klippy module(s) through Moonraker,
+add the following to your `moonraker.conf` file. This file is usually
+located in `~/printer_data/config/`:
+
+```
+[update_manager belay]
+type: git_repo
+path: ~/belay_klippy_module
+origin: https://github.com/Annex-Engineering/Belay.git
+primary_branch: main
+managed_services: klipper
+```
+
+Then restart the moonraker service using the following command:
+
+```
+sudo systemctl restart moonraker
+```
 
 ### Config files
 
