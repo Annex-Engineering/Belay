@@ -121,6 +121,7 @@ module(s):
 ```
 cd ~
 curl -LJO https://raw.githubusercontent.com/Annex-Engineering/Belay/main/Klipper_Stuff/klippy_module/install.sh
+chmod +x install.sh
 ./install.sh
 ```
 
