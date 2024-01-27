@@ -67,6 +67,12 @@ class Belay:
         self.gcode.register_mux_command("BELAY_SET_MULTIPLIER",
             "BELAY", self.name, self.cmd_BELAY_SET_MULTIPLIER,
             desc=self.cmd_BELAY_SET_MULTIPLIER_help)
+        
+        # register extruder_stepper-only commands
+        if self.type == 'extruder_stepper':
+            self.gcode.register_mux_command("BELAY_SET_STEPPER",
+                "BELAY", self.name, self.cmd_BELAY_SET_STEPPER,
+                desc=self.cmd_BELAY_SET_STEPPER_help)
     
     def handle_connect(self):
         self.toolhead = self.printer.lookup_object('toolhead')
@@ -78,12 +84,15 @@ class Belay:
             self.enable_conditions.append(trad_rack.is_fil_driver_synced)
             self.disable_conditions.append(trad_rack.is_fil_driver_synced)
         elif self.type == 'extruder_stepper':
-            printer_extruder_stepper = self.printer.lookup_object(
-                'extruder_stepper {}'.format(self.extruder_stepper_name))
-            stepper = printer_extruder_stepper.extruder_stepper.stepper
-            base_rotation_dist = stepper.get_rotation_distance()[0]
-            self.set_multiplier = lambda m : stepper.set_rotation_distance(
-                base_rotation_dist / m)
+            self._set_extruder_stepper(self.extruder_stepper_name)
+            
+    def _set_extruder_stepper(self, extruder_stepper_name):
+        printer_extruder_stepper = self.printer.lookup_object(
+            'extruder_stepper {}'.format(extruder_stepper_name))
+        stepper = printer_extruder_stepper.extruder_stepper.stepper
+        base_rotation_dist = stepper.get_rotation_distance()[0]
+        self.set_multiplier = lambda m : stepper.set_rotation_distance(
+            base_rotation_dist / m)
 
     def handle_ready(self):
         if self.enable_initial:
@@ -160,6 +169,13 @@ class Belay:
                                               minval=1.)
         self.multiplier_low = gcmd.get_float('LOW', self.multiplier_low,
                                             minval=0., maxval=1.)
+        
+    cmd_BELAY_SET_STEPPER_help = ("Select the extruder_stepper object to be "
+                                  "controlled by the Belay")
+    def cmd_BELAY_SET_STEPPER(self, gcmd):
+        self.handle_disable()
+        self._set_extruder_stepper(gcmd.get('STEPPER'))
+        self.handle_enable()
 
     def get_status(self, eventtime):
         return {

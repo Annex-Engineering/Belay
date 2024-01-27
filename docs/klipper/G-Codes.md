@@ -15,3 +15,12 @@ multiplier_low for the belay specified by `BELAY`, overriding their
 values from the corresponding
 [belay config section](Config_Reference.md#belay). Values set by this
 command will not persist across restarts.
+
+### BELAY_SET_STEPPER
+`BELAY_SET_STEPPER BELAY=<config_name> STEPPER=<extruder_stepper_name>`: Selects
+the extruder_stepper whose multiplier will be controlled by the belay specified
+by `BELAY`. The multiplier for the previous stepper will be reset back
+to 1 before switching to the new stepper. Stepper selections made by this
+command will not persist across restarts. This command is only available if
+extruder_type is set to 'extruder_stepper' in the corresponding
+[belay config section](Config_Reference.md#belay).
