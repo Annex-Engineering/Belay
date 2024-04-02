@@ -13,3 +13,5 @@ quickly as possible with minimal reading, see the
   Belay.
 - [G-Codes](klipper/G-Codes.md): commands added by the belay
   Klipper module.
+- [Status Reference](klipper/Status_Reference.md): information
+  available to macros (and similar) from the belay Klipper module.
