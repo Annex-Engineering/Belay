@@ -113,6 +113,11 @@ This section lists the steps to get Belay set up to work with Klipper:
 This section involves adding the Belay Klippy module(s) to Klipper
 and enabling updates through Moonraker.
 
+If you are using
+[Danger Klipper](https://github.com/DangerKlippers/danger-klipper),
+you can skip to [setting up config files](#config-files) since
+Danger Klipper already includes the belay module.
+
 #### Klippy module installation
 
 Run the following commands to download and install the Klippy
