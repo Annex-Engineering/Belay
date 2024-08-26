@@ -99,10 +99,27 @@ Insert the exit bowden tube, then add a collet clip:
 
 ![](images/add_exit_tube_and_clip.png?raw=true)
 
-Solder 2 wires to the microswitch and secure them to the sensor housing with a
-zip tie as shown below:
+## Wiring
+
+The microswitch has 3 solder points, but we're only going to be using 2 of them. Specifically, we'll be using the two solder points on the left and right sides of the housing. You can ignore the middle one.
+
+The wires will not be used to carry any substantial current. So you don't have to worry about using a specific gauge of wire.
+
+Solder 2 wires to the microswitch as shown below:
+
+![](images/wiring_example_2.jpg?raw=true)
+
+Make sure you secure them to the sensor housing with a
+zip tie as shown below. This will keep any stresses from moving the belay around off the solder points.
 
 ![](images/wiring_example.jpg?raw=true)
+
+Next, you'll need to identify a port on your controller board to use. An endstop port is the easiest option, but you can use almost any available port with an input signal pin and a ground pin. Make sure you note the microcontroller pin name for the signal pin of this port, as you'll need it when we get to setting up the belay in Klipper later. In this example, we'll be using an endstop port. This is a 3-pin port, and connects using a JST-XH connector.
+
+The port's pins are 3.3v, ground, and signal. The Belay only needs to connect to the ground and signal pins. You'll need to crimp the wires and then make sure you insert them in the connector aligned with the proper pins. It does not matter which wire is connected to ground or signal.
+![](images/wire_crimp_example.jpg?raw=true)
+
+That's all it takes to wire the belay. Whenever you're ready, you can run the wire and plug it in to your printer's controller board. Remember that sensor pin name for the next steps.
 
 ## Klipper installation
 
