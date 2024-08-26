@@ -8,6 +8,7 @@ running.
 - [BOM/sourcing](#bomsourcing)
 - [Printed parts](#printed-parts)
 - [Assembly](#assembly)
+- [Wiring](#wiring)
 - [Klipper installation](#klipper-installation)
   - [Klippy module](#klippy-module)
     - [Klippy module installation](#klippy-module-installation)
