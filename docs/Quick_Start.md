@@ -37,12 +37,12 @@ The following hardware is required:
 | Component/Item                        | Qty Required  | Notes                                                               |
 | ---                                   | ---           | ---                                                                 |
 | Omron D2F-L Microswitch               | 1             | See Trad Rack BOM/sourcing guide for other variants that will work  |
-| Collet                                | 2             |                                                                     |
-| Collet clip                           | 2             |                                                                     |
+| Collet                                | 2             | See Trad Rack BOM/sourcing guide for an ECAS04 source               |
+| Collet clip                           | 2             | Only needed if using a 5mm or 6mm collet                            |
 | M2 x 12mm Pan Head Self Tapping Screw | 2             | Longer screws will also work but will stick out                     |
 
 See [the STLs README](/STLs/README.md#collet-types) for collet type options.
-Some example sources for collets and collet clips:
+Some example sources for 5mm/6mm collets and collet clips:
 - 5mm collet - [KB3D](https://kb-3d.com/store/spare-parts/487-bondtech-push-fit-collar-for-bowden-coupling-175mm-7350011413331.html)
 - 5mm collet clip - [KB3D](https://kb-3d.com/store/e3d/48-e3d-bowden-collet-clip-175mm-1644688775189.html)
 - 6mm collet and collet clip - [AliExpress](https://www.aliexpress.us/item/2255801046836641.html)
@@ -62,7 +62,8 @@ See the following files/folders:
 
 ## Assembly
 
-This section lists the assembly steps.
+This section lists the assembly steps. If you are using ECAS04 collets, you can
+ignore any time a step tells you to add a collet clip.
 
 Insert the 2 collets into the sensor housing and slider:
 
