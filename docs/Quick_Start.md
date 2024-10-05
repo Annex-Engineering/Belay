@@ -92,8 +92,19 @@ sensor housing:
 
 ![](images/add_entry_tube.png?raw=true)
 
-Gently pull the tube until the slider reaches the other end of its travel. Then
-add a collet clip by inserting it through the slot in the cover:
+Gently pull the tube until the slider reaches the other end of its travel:
+
+![](images/pull_entry_tube.png?raw=true)
+
+> [!IMPORTANT]
+> The tube should extend past the left end of the slider and into the sensor
+> housing, as shown by the orange highlighted portion in the image above. If you
+> can see a gap in the filament path, then the tube was not inserted all the
+> way, and you need to retry the previous 2 steps (move the slider to the left
+> end of its travel before pushing the tube further in, then pull the tube until
+> the slider reaches the right end of its travel).
+
+Add a collet clip by inserting it through the slot in the cover:
 
 ![](images/add_entry_clip.png?raw=true)
 
