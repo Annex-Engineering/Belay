@@ -12,9 +12,9 @@ The following bowden tube collet types are supported:
 - "6mm collet" (UM2)
 - ECAS04
 
-The filename of each variant of the housing_core STL will contain either
-`(5mm_collet)`, `(6mm_collet)`, or `(ecas04)` to indicate the collet type it is
-meant for.
+The filename of each variant of the slider and sensor_housing STLs will contain
+either `(5mm_collet)`, `(6mm_collet)`, or `(ecas04)` to indicate the collet type
+it is meant for.
 
 "5mm" and "6mm" refer to the approximate diameter of the part of the collet that
 the collet clip goes around, highlighted in blue below:
