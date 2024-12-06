@@ -1,7 +1,7 @@
 # Belay Configuration reference
 
-This document is modeled after Klipper's
-[Config Reference document](https://www.klipper3d.org/Config_Reference.html)
+This document is modeled after Kalico's
+[Config Reference document](https://docs.kalico.gg/Config_Reference.html)
 but only contains items pertaining to Belay.
 
 ### [belay]

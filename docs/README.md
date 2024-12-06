@@ -8,10 +8,10 @@ quickly as possible with minimal reading, see the
 - [Quick Start](Quick_Start.md): information on how to get Belay
   running.
 
-## Klipper
-- [Config Reference](klipper/Config_Reference.md): config settings for
+## Kalico
+- [Config Reference](kalico/Config_Reference.md): config settings for
   Belay.
-- [G-Codes](klipper/G-Codes.md): commands added by the belay
-  Klipper module.
-- [Status Reference](klipper/Status_Reference.md): information
-  available to macros (and similar) from the belay Klipper module.
+- [G-Codes](kalico/G-Codes.md): commands added by the belay
+  klippy module.
+- [Status Reference](kalico/Status_Reference.md): information
+  available to macros (and similar) from the belay klippy module.
