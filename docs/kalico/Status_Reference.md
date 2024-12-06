@@ -1,7 +1,7 @@
 # Status Reference
 
-This document is modeled after Klipper's
-[Status Reference document](https://www.klipper3d.org/Status_Reference.html)
+This document is modeled after Kalico's
+[Status Reference document](https://docs.kalico.gg/Status_Reference.html)
 but only contains items pertaining to Belay.
 
 ## belay
