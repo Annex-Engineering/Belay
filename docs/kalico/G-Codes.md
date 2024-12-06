@@ -1,7 +1,7 @@
 # G-Codes
 
-This document is modeled after Klipper's
-[G-Codes document](https://www.klipper3d.org/G-Codes.html) but only
+This document is modeled after Kalico's
+[G-Codes document](https://docs.kalico.gg/G-Codes.html) but only
 contains items pertaining to Belay.
 
 ### QUERY_BELAY

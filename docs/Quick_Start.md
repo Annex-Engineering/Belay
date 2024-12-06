@@ -9,7 +9,7 @@ running.
 - [Printed parts](#printed-parts)
 - [Assembly](#assembly)
 - [Wiring](#wiring)
-- [Klipper installation](#klipper-installation)
+- [Kalico installation](#kalico-installation)
   - [Klippy module](#klippy-module)
     - [Klippy module installation](#klippy-module-installation)
     - [Enabling Moonraker updates](#enabling-moonraker-updates)
@@ -25,7 +25,8 @@ Your 3D printer must meet the following requirements to work with
 Belay:
 
 - Must use 1.75mm filament.
-- Must run [Klipper firmware](https://github.com/Klipper3d/klipper/).
+- Must run [Kalico](http://github.com/KalicoCrew/kalico) or
+  [Klipper](https://github.com/Klipper3d/klipper) firmware.
 - The toolhead or primary extruder must have a collet/coupling to
   secure a 4mm bowden tube at its inlet. The secondary extruder must
   have one at its outlet as well.
@@ -127,26 +128,25 @@ zip tie as shown below. This will keep any stresses from moving the belay around
 
 ![](images/wiring_example.jpg?raw=true)
 
-Next, you'll need to identify a port on your controller board to use. An endstop port is the easiest option, but you can use almost any available port with an input signal pin and a ground pin. Make sure you note the microcontroller pin name for the signal pin of this port, as you'll need it when we get to setting up the belay in Klipper later. In this example, we'll be using an endstop port. This is a 3-pin port, and connects using a JST-XH connector.
+Next, you'll need to identify a port on your controller board to use. An endstop port is the easiest option, but you can use almost any available port with an input signal pin and a ground pin. Make sure you note the microcontroller pin name for the signal pin of this port, as you'll need it when we get to setting up the belay in Kalico or Klipper later. In this example, we'll be using an endstop port. This is a 3-pin port, and connects using a JST-XH connector.
 
 The port's pins are 3.3v, ground, and signal. The Belay only needs to connect to the ground and signal pins. You'll need to crimp the wires and then make sure you insert them in the connector aligned with the proper pins. It does not matter which wire is connected to ground or signal.
 ![](images/wire_crimp_example.jpg?raw=true)
 
 That's all it takes to wire the belay. Whenever you're ready, you can run the wire and plug it in to your printer's controller board. Remember that sensor pin name for the next steps.
 
-## Klipper installation
+## Kalico installation
 
-This section lists the steps to get Belay set up to work with Klipper:
+This section lists the steps to get Belay set up to work with Kalico or Klipper:
 
 ### Klippy module
 
 This section involves adding the Belay Klippy module(s) to Klipper
 and enabling updates through Moonraker.
 
-If you are using
-[Danger Klipper](https://github.com/DangerKlippers/danger-klipper),
+If you are using [Kalico](http://github.com/KalicoCrew/kalico),
 you can skip to [setting up config files](#config-files) since
-Danger Klipper already includes the belay module.
+Kalico already includes the belay module.
 
 #### Klippy module installation
 
@@ -155,7 +155,7 @@ module(s):
 
 ```
 cd ~
-curl -LJO https://raw.githubusercontent.com/Annex-Engineering/Belay/main/Klipper_Stuff/klippy_module/install.sh
+curl -LJO https://raw.githubusercontent.com/Annex-Engineering/Belay/main/Kalico/klippy_module/install.sh
 chmod +x install.sh
 ./install.sh
 ```
@@ -179,7 +179,7 @@ sudo systemctl restart klipper
 > following commands:
 > ```
 > cd ~
-> ./belay_klippy_module/Klipper_Stuff/klippy_module/install.sh <branch_name>
+> ./belay_klippy_module/Kalico/klippy_module/install.sh <branch_name>
 > ```
 > If unspecified, `branch_name` defaults to `main`.
 
@@ -208,8 +208,8 @@ sudo systemctl restart moonraker
 
 Sample config files are provided for different secondary extruder
 types. Copy the file from the corresponding subfolder of the
-[klipper_config folder](/Klipper_Stuff/klipper_config/) and
-[include it](https://www.klipper3d.org/Config_Reference.html#include)
+[kalico_config folder](/Kalico/kalico_config/) and
+[include it](https://docs.kalico.gg/Config_Reference.html#include)
 in your main printer config file.
 
 Change the `sensor_pin` config option to match the pin you are using.
@@ -217,7 +217,7 @@ In addition, make sure to follow all instructions left in the comments
 of the config file (which are specific to the type of secondary
 extruder you are using) for any further changes that may be needed.
 
-Restart klipper once you have finished making changes to the config
+Restart Kalico once you have finished making changes to the config
 file(s).
 
 ## Testing

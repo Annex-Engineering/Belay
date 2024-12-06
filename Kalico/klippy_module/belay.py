@@ -8,25 +8,9 @@ POSITION_TIME_DIFF = 0.3
 
 
 class Belay:
-    WARNING_MSG = (
-        "[belay]: belay.py has been moved to a different folder in"
-        ' the Belay repo. Please redo the steps here under "Klippy module '
-        ' installation" (including using curl to download the updated'
-        " install script) to update your belay installation to use the new"
-        " folder:"
-        " https://github.com/Annex-Engineering/Belay/blob/main/docs/Quick_Start.md#klippy-module-installation"
-        "\nThe old folder is being kept intact for now but will be deleted"
-        " soon. After that happens, attempting to update belay through"
-        " Moonraker may break the belay install."
-    )
-
     def __init__(self, config):
         self.printer = config.get_printer()
         self.reactor = self.printer.get_reactor()
-
-        # warning to use belay.py from the new folder instead
-        pconfig = self.printer.lookup_object("configfile")
-        pconfig.runtime_warning(self.WARNING_MSG)
 
         # initial type-specific setup
         type_options = ["trad_rack", "extruder_stepper"]
@@ -134,12 +118,6 @@ class Belay:
     def handle_ready(self):
         if self.enable_initial:
             self.handle_enable()
-
-        # warning to use belay.py from the new folder instead
-        self.reactor.register_callback(
-            lambda _: self.gcode.respond_info(self.WARNING_MSG),
-            self.reactor.monotonic() + 1,
-        )
 
     def handle_enable(self):
         for condition in self.enable_conditions:

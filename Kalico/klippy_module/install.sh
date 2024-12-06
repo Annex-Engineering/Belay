@@ -3,7 +3,7 @@
 set -e
 
 branch=${1:-main}
-module_dir=Klipper_Stuff/klippy_module
+module_dir=Kalico/klippy_module
 script_dir=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 repo_source=https://github.com/Annex-Engineering/Belay.git
 repo_dir=belay_klippy_module
