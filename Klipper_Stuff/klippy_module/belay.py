@@ -10,7 +10,8 @@ POSITION_TIME_DIFF = 0.3
 class Belay:
     WARNING_MSG = (
         "[belay]: belay.py has been moved to a different folder in"
-        ' the Belay repo. Please redo the steps here under "Klippy module '
+        " the Belay repo. Please delete the ~/belay_klippy_module directory,"
+        ' then redo the steps here under "Klippy module '
         ' installation" (including using curl to download the updated'
         " install script) to update your belay installation to use the new"
         " folder:"
