@@ -161,8 +161,14 @@ class Belay:
         if self.debug_level >= 1:
             self.gcode.respond_info("Reset secondary extruder multiplier")
 
+    def _get_lookahead(self):
+        if hasattr(self.toolhead, "lookahead"):
+            return self.toolhead.lookahead
+        else:
+            return self.toolhead.move_queue
+
     def update_direction(self, eventtime):
-        if self.toolhead.lookahead.get_last() is not None:
+        if self._get_lookahead().get_last() is not None:
             self.toolhead.register_lookahead_callback(
                 lambda pt, f=self.flush_id: self.handle_flush(pt, f)
             )
@@ -174,7 +180,7 @@ class Belay:
             return
 
         # get ending extruder position of moves that will be flushed
-        last_move = self.toolhead.lookahead.get_last()
+        last_move = self._get_lookahead().get_last()
         if last_move is not None:
             e_pos = last_move.end_pos[3]
         else:
