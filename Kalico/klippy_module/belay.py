@@ -1,10 +1,9 @@
 # Belay extruder-syncing sensor support
 #
-# Copyright (C) 2023-2024 Ryan Ghosh <rghosh776@gmail.com>
+# Copyright (C) 2023-2025 Ryan Ghosh <rghosh776@gmail.com>
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
 DIRECTION_UPDATE_INTERVAL = 0.1
-POSITION_TIME_DIFF = 0.3
 
 
 class Belay:
@@ -66,6 +65,8 @@ class Belay:
         self.update_direction_timer = self.reactor.register_timer(
             self.update_direction
         )
+        self.flush_id = True
+        self.last_flushed_e_pos = 0.0
 
         # register commands
         self.gcode.register_mux_command(
@@ -161,22 +162,37 @@ class Belay:
             self.gcode.respond_info("Reset secondary extruder multiplier")
 
     def update_direction(self, eventtime):
-        mcu = self.printer.lookup_object("mcu")
-        print_time = mcu.estimated_print_time(eventtime)
-        extruder = self.toolhead.get_extruder()
-        curr_pos = extruder.find_past_position(print_time)
-        past_pos = extruder.find_past_position(
-            max(0.0, print_time - POSITION_TIME_DIFF)
-        )
+        if self.toolhead.lookahead.get_last() is not None:
+            self.toolhead.register_lookahead_callback(
+                lambda pt, f=self.flush_id: self.handle_flush(pt, f)
+            )
+        return eventtime + DIRECTION_UPDATE_INTERVAL
+
+    def handle_flush(self, print_time, curr_flush_id):
+        # return if disabled or if this lookahead flush was already handled
+        if not self.enabled or self.flush_id != curr_flush_id:
+            return
+
+        # get ending extruder position of moves that will be flushed
+        last_move = self.toolhead.lookahead.get_last()
+        if last_move is not None:
+            e_pos = last_move.end_pos[3]
+        else:
+            e_pos = self.last_flushed_e_pos
+
+        # note net direction of moves and update the extruder multiplier if the
+        # direction changed
         prev_direction = self.last_direction
-        self.last_direction = curr_pos >= past_pos
+        self.last_direction = e_pos >= self.last_flushed_e_pos
         if self.last_direction != prev_direction:
             if self.debug_level >= 2:
                 self.gcode.respond_info(
                     "New Belay sensor direction: %s" % self.last_direction
                 )
             self.update_multiplier(False)
-        return eventtime + DIRECTION_UPDATE_INTERVAL
+
+        self.flush_id = not self.flush_id
+        self.last_flushed_e_pos = e_pos
 
     cmd_QUERY_BELAY_help = "Report Belay sensor state"
 
