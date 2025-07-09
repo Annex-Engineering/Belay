@@ -46,7 +46,7 @@ class Belay:
             "multiplier_high", default=1.05, minval=1.0
         )
         self.multiplier_low = config.getfloat(
-            "multiplier_low", default=0.95, minval=0.0, maxval=1.0
+            "multiplier_low", default=0.95, minval=0.5, maxval=1.0
         )
         self.debug_level = config.getint(
             "debug_level", default=0.0, minval=0.0, maxval=2.0
