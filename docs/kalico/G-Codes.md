@@ -25,11 +25,16 @@ the belay specified by `BELAY` for its corresponding secondary extruder.
 multiplier for the secondary extruder corresponding to the belay specified by
 `BELAY` and disables extrusion multiplier adjustments by the belay. If
 `OVERRIDE` is 1, then the specified belay cannot be re-enabled automatically
-until the ENABLE_BELAY command is used with the same belay specified for the
-`BELAY` parameter. The `OVERRIDE` parameter currently is only relevant if
-extruder_type is set to 'trad_rack' in the corresponding
+until the ENABLE_BELAY or BELAY_CLEAR_OVERRIDE command is used with the same
+belay specified for the `BELAY` parameter. The `OVERRIDE` parameter currently is
+only relevant if extruder_type is set to 'trad_rack' in the corresponding
 [belay config section](Config_Reference.md#belay). If not specified,
 `OVERRIDE` defaults to 0.
+
+### BELAY_CLEAR_OVERRIDE
+`BELAY_CLEAR_OVERRIDE BELAY=<config_name>`: Clears any override set by the
+DISABLE_BELAY command that would prevent the belay specified by `BELAY` from
+being automatically enabled.
 
 ### BELAY_SET_STEPPER
 `BELAY_SET_STEPPER BELAY=<config_name> STEPPER=<extruder_stepper_name>`: Selects

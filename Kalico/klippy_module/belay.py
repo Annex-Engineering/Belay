@@ -101,6 +101,13 @@ class Belay:
             self.cmd_DISABLE_BELAY,
             desc=self.cmd_DISABLE_BELAY_help,
         )
+        self.gcode.register_mux_command(
+            "BELAY_CLEAR_OVERRIDE",
+            "BELAY",
+            self.name,
+            self.cmd_BELAY_CLEAR_OVERRIDE,
+            desc=self.cmd_BELAY_CLEAR_OVERRIDE_help,
+        )
 
         # register extruder_stepper-only commands
         if self.type == "extruder_stepper":
@@ -260,6 +267,14 @@ class Belay:
         self.multiplier_low = gcmd.get_float(
             "LOW", self.multiplier_low, minval=0.0, maxval=1.0
         )
+
+    cmd_BELAY_CLEAR_OVERRIDE_help = (
+        "Clears any user override that would prevent the Belay from being"
+        " automatically enabled"
+    )
+
+    def cmd_BELAY_CLEAR_OVERRIDE(self, gcmd):
+        self.user_disable = False
 
     cmd_BELAY_SET_STEPPER_help = (
         "Select the extruder_stepper object to be controlled by the Belay"
