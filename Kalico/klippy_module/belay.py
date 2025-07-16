@@ -3,7 +3,7 @@
 # Copyright (C) 2023-2025 Ryan Ghosh <rghosh776@gmail.com>
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
-DIRECTION_UPDATE_INTERVAL = 0.1
+from abc import ABC, abstractmethod
 
 
 class Belay:
@@ -11,66 +11,45 @@ class Belay:
         self.printer = config.get_printer()
         self.reactor = self.printer.get_reactor()
 
-        # initial type-specific setup
-        type_options = ["trad_rack", "extruder_stepper"]
-        self.type = config.getchoice(
-            "extruder_type", {t: t for t in type_options}
+        # read name
+        self.name = config.get_name().split()[1]
+
+        # create slider sensor
+        self.slider_sensor = self._get_selected_subclass(
+            SliderSensor, "sensor_type", config
+        )(config, self)
+
+        # create secondary extruder
+        self.secondary_extruder = self._get_selected_subclass(
+            SecondaryExtruder, "extruder_type", config
+        )(config, self)
+
+        # create extrusion direction monitor (if it doesn't already exist)
+        # and register extrusion direction update handler
+        monitor_name = "belay_extrusion_direction_monitor"
+        monitor = self.printer.lookup_object(monitor_name, default=None)
+        if monitor is None:
+            monitor = ExtrusionDirectionMonitor(self.printer)
+            self.printer.add_object(monitor_name, monitor)
+        monitor.register_direction_update_handler(
+            self.slider_sensor.handle_extrusion_direction_update
         )
-        if self.type == "trad_rack":
-            enable_events = ["trad_rack:synced_to_extruder"]
-            disable_events = ["trad_rack:unsyncing_from_extruder"]
-            self.enable_initial = False
-        elif self.type == "extruder_stepper":
-            self.extruder_stepper_name = config.get("extruder_stepper_name")
-            enable_events = []
-            disable_events = []
-            self.enable_initial = True
 
         # register event handlers
-        self.printer.register_event_handler(
-            "klippy:connect", self.handle_connect
-        )
-        self.printer.register_event_handler("klippy:ready", self.handle_ready)
-        for event in enable_events:
-            self.printer.register_event_handler(event, self.handle_enable)
-        for event in disable_events:
-            self.printer.register_event_handler(event, self.handle_disable)
-
-        # register button
-        sensor_pin = config.get("sensor_pin")
-        buttons = self.printer.load_object(config, "buttons")
-        buttons.register_buttons([sensor_pin], self.sensor_callback)
+        for event in self.secondary_extruder.get_enable_events():
+            self.printer.register_event_handler(event, self.enable)
+        for event in self.secondary_extruder.get_disable_events():
+            self.printer.register_event_handler(event, self.disable)
 
         # read other values
-        self.multiplier_high = config.getfloat(
-            "multiplier_high", default=1.05, minval=1.0
-        )
-        self.multiplier_low = config.getfloat(
-            "multiplier_low", default=0.95, minval=0.5, maxval=1.0
-        )
         self.debug_level = config.getint(
-            "debug_level", default=0.0, minval=0.0, maxval=2.0
+            "debug_level", default=0, minval=0, maxval=2
         )
 
         # other variables
-        self.name = config.get_name().split()[1]
         self.enabled = False
         self.user_disable = False
-        self.last_state = False
-        self.last_direction = True
-        self.set_multiplier = None
-        self.enable_conditions = [
-            lambda: not self.enabled,
-            lambda: not self.user_disable,
-        ]
-        self.disable_conditions = [lambda: self.enabled]
         self.gcode = self.printer.lookup_object("gcode")
-        self.toolhead = None
-        self.update_direction_timer = self.reactor.register_timer(
-            self.update_direction
-        )
-        self.flush_id = True
-        self.last_flushed_e_pos = 0.0
 
         # register commands
         self.gcode.register_mux_command(
@@ -79,13 +58,6 @@ class Belay:
             self.name,
             self.cmd_QUERY_BELAY,
             desc=self.cmd_QUERY_BELAY_help,
-        )
-        self.gcode.register_mux_command(
-            "BELAY_SET_MULTIPLIER",
-            "BELAY",
-            self.name,
-            self.cmd_BELAY_SET_MULTIPLIER,
-            desc=self.cmd_BELAY_SET_MULTIPLIER_help,
         )
         self.gcode.register_mux_command(
             "ENABLE_BELAY",
@@ -109,82 +81,125 @@ class Belay:
             desc=self.cmd_BELAY_CLEAR_OVERRIDE_help,
         )
 
-        # register extruder_stepper-only commands
-        if self.type == "extruder_stepper":
-            self.gcode.register_mux_command(
-                "BELAY_SET_STEPPER",
-                "BELAY",
-                self.name,
-                self.cmd_BELAY_SET_STEPPER,
-                desc=self.cmd_BELAY_SET_STEPPER_help,
-            )
+    def _get_selected_subclass(self, parent_class, config_option, config):
+        choices = {}
+        for cls in parent_class.__subclasses__():
+            choices[cls.get_name()] = cls
+        return config.getchoice(config_option, choices)
 
-    def handle_connect(self):
-        self.toolhead = self.printer.lookup_object("toolhead")
-
-        # finish type-specific setup
-        if self.type == "trad_rack":
-            trad_rack = self.printer.lookup_object("trad_rack")
-            self.set_multiplier = trad_rack.set_fil_driver_multiplier
-            self.enable_conditions.append(trad_rack.is_fil_driver_synced)
-            self.disable_conditions.append(trad_rack.is_fil_driver_synced)
-        elif self.type == "extruder_stepper":
-            self._set_extruder_stepper(self.extruder_stepper_name)
-
-    def _set_extruder_stepper(self, extruder_stepper_name):
-        printer_extruder_stepper = self.printer.lookup_object(
-            "extruder_stepper {}".format(extruder_stepper_name)
-        )
-        stepper = printer_extruder_stepper.extruder_stepper.stepper
-        base_rotation_dist = stepper.get_rotation_distance()[0]
-        self.set_multiplier = lambda m: stepper.set_rotation_distance(
-            base_rotation_dist / m
-        )
-
-    def handle_ready(self):
-        if self.enable_initial:
-            self.handle_enable()
-
-    def handle_enable(self):
-        for condition in self.enable_conditions:
+    def enable(self):
+        if self.enabled or self.user_disable:
+            return
+        for condition in self.secondary_extruder.get_enable_conditions():
             if not condition():
                 return
         self.enabled = True
-        self.reactor.update_timer(self.update_direction_timer, self.reactor.NOW)
-        self.update_multiplier()
+        self.slider_sensor.handle_enable()
 
-    def handle_disable(self):
-        for condition in self.disable_conditions:
+    def disable(self):
+        if not self.enabled:
+            return
+        for condition in self.secondary_extruder.get_disable_conditions():
             if not condition():
                 return
         self.reset_multiplier()
-        self.reactor.update_timer(
-            self.update_direction_timer, self.reactor.NEVER
-        )
         self.enabled = False
+        self.slider_sensor.handle_disable()
 
-    def sensor_callback(self, eventtime, state):
-        self.last_state = state
-        if self.enabled:
-            self.update_multiplier()
+    def set_multiplier(self, multiplier, print_msg=True):
+        if not self.enabled:
+            return
 
-    def update_multiplier(self, print_msg=True):
-        if self.last_state == self.last_direction:
-            # compressed/forward or expanded/backward
-            multiplier = self.multiplier_high
-        else:
-            # compressed/backward or expanded/forward
-            multiplier = self.multiplier_low
-        self.set_multiplier(multiplier)
+        self.secondary_extruder.set_multiplier(multiplier)
         if (print_msg and self.debug_level >= 1) or self.debug_level >= 2:
             self.gcode.respond_info(
                 "Set secondary extruder multiplier: %f" % multiplier
             )
 
     def reset_multiplier(self):
-        self.set_multiplier(1.0)
+        self.set_multiplier(1.0, print_msg=False)
         if self.debug_level >= 1:
             self.gcode.respond_info("Reset secondary extruder multiplier")
+
+    cmd_QUERY_BELAY_help = "Report Belay sensor state"
+
+    def cmd_QUERY_BELAY(self, gcmd):
+        self.gcode.respond_info(
+            "belay {}: {}".format(
+                self.name, self.slider_sensor.get_state_description()
+            )
+        )
+
+    cmd_ENABLE_BELAY_help = "Enable Belay extrusion multiplier adjustment"
+
+    def cmd_ENABLE_BELAY(self, gcmd):
+        self.user_disable = False
+        self.enable()
+        if not self.enabled:
+            raise self.printer.command_error(
+                "Conditions not met to enable belay {}".format(self.name)
+            )
+
+    cmd_DISABLE_BELAY_help = "Disable Belay extrusion multiplier adjustment"
+
+    def cmd_DISABLE_BELAY(self, gcmd):
+        if gcmd.get_int("OVERRIDE", 0):
+            self.user_disable = True
+        self.disable()
+        if self.enabled:
+            raise self.printer.command_error(
+                "Conditions not met to disable belay {}".format(self.name)
+            )
+
+    cmd_BELAY_CLEAR_OVERRIDE_help = (
+        "Clears any user override that would prevent the Belay from being"
+        " automatically enabled"
+    )
+
+    def cmd_BELAY_CLEAR_OVERRIDE(self, gcmd):
+        self.user_disable = False
+
+    def get_status(self, eventtime):
+        status = {
+            "enabled": self.enabled,
+            "state_description": self.slider_sensor.get_state_description(),
+            "slider_dimensionless_position": (
+                self.slider_sensor.get_dimensionless_position()
+            ),
+        }
+        status.update(self.slider_sensor.get_status(eventtime))
+        return status
+
+
+DIRECTION_UPDATE_INTERVAL = 0.1
+
+
+class ExtrusionDirectionMonitor:
+    def __init__(self, printer):
+        self.printer = printer
+        self.reactor = self.printer.get_reactor()
+
+        # register event handlers
+        self.printer.register_event_handler(
+            "klippy:connect", self.handle_connect
+        )
+        self.printer.register_event_handler("klippy:ready", self.handle_ready)
+
+        # other variables
+        self.toolhead = None
+        self.update_direction_timer = self.reactor.register_timer(
+            self.update_direction
+        )
+        self.last_direction = True
+        self.flush_id = True
+        self.last_flushed_e_pos = 0.0
+        self.direction_update_handlers = []
+
+    def handle_connect(self):
+        self.toolhead = self.printer.lookup_object("toolhead")
+
+    def handle_ready(self):
+        self.reactor.update_timer(self.update_direction_timer, self.reactor.NOW)
 
     def _get_lookahead(self):
         if hasattr(self.toolhead, "lookahead"):
@@ -200,8 +215,8 @@ class Belay:
         return eventtime + DIRECTION_UPDATE_INTERVAL
 
     def handle_flush(self, print_time, curr_flush_id):
-        # return if disabled or if this lookahead flush was already handled
-        if not self.enabled or self.flush_id != curr_flush_id:
+        # return if this lookahead flush was already handled
+        if self.flush_id != curr_flush_id:
             return
 
         # get ending extruder position of moves that will be flushed
@@ -211,49 +226,138 @@ class Belay:
         else:
             e_pos = self.last_flushed_e_pos
 
-        # note net direction of moves and update the extruder multiplier if the
+        # note net direction of moves and call handler callbacks if the
         # direction changed
-        prev_direction = self.last_direction
-        self.last_direction = e_pos >= self.last_flushed_e_pos
-        if self.last_direction != prev_direction:
-            if self.debug_level >= 2:
-                self.gcode.respond_info(
-                    "New Belay sensor direction: %s" % self.last_direction
-                )
-            self.update_multiplier(False)
+        direction = e_pos >= self.last_flushed_e_pos
+        if direction != self.last_direction:
+            for handler in self.direction_update_handlers:
+                handler(direction)
 
+        self.last_direction = direction
         self.flush_id = not self.flush_id
         self.last_flushed_e_pos = e_pos
 
-    cmd_QUERY_BELAY_help = "Report Belay sensor state"
+    def register_direction_update_handler(self, callback):
+        self.direction_update_handlers.append(callback)
 
-    def cmd_QUERY_BELAY(self, gcmd):
-        if self.last_state:
-            state_info = "compressed"
+    def get_status(self, eventtime):
+        return {
+            "last_extrusion_direction": self.last_direction,
+            "last_flushed_extruder_position": self.last_flushed_e_pos,
+        }
+
+
+class NamedConfigOptionChoice(ABC):
+    @classmethod
+    @abstractmethod
+    def get_name(cls):
+        pass
+
+
+# Slider sensors
+
+
+class SliderSensor(NamedConfigOptionChoice, ABC):
+    @abstractmethod
+    def __init__(self, config, belay):
+        pass
+
+    @abstractmethod
+    def handle_extrusion_direction_update(self, new_direction):
+        pass
+
+    @abstractmethod
+    def handle_enable(self):
+        pass
+
+    @abstractmethod
+    def handle_disable(self):
+        pass
+
+    @abstractmethod
+    def get_state_description(self):
+        pass
+
+    @abstractmethod
+    def get_dimensionless_position(self):
+        pass
+
+    def get_status(self, eventtime):
+        return {}
+
+
+class SingleDigitalSwitch(SliderSensor):
+    def __init__(self, config, belay):
+        self.printer = config.get_printer()
+        self.belay = belay
+
+        # register button
+        sensor_pin = config.get("sensor_pin")
+        buttons = self.printer.load_object(config, "buttons")
+        buttons.register_buttons([sensor_pin], self.sensor_callback)
+
+        # read other values
+        self.multiplier_high = config.getfloat(
+            "multiplier_high", default=1.05, minval=1.0
+        )
+        self.multiplier_low = config.getfloat(
+            "multiplier_low", default=0.95, minval=0.5, maxval=1.0
+        )
+
+        # other variables
+        self.last_state = False
+        self.last_direction = True
+        self.gcode = self.printer.lookup_object("gcode")
+
+        # register commands
+        gcode = self.printer.lookup_object("gcode")
+        gcode.register_mux_command(
+            "BELAY_SET_MULTIPLIER",
+            "BELAY",
+            self.belay.name,
+            self.cmd_BELAY_SET_MULTIPLIER,
+            desc=self.cmd_BELAY_SET_MULTIPLIER_help,
+        )
+
+    @classmethod
+    def get_name(cls):
+        return "single_digital_switch"
+
+    def sensor_callback(self, eventtime, state):
+        self.last_state = state
+        self._update_multiplier()
+
+    def _update_multiplier(self, print_msg=True):
+        if not self.belay.enabled:
+            return
+
+        if self.last_state == self.last_direction:
+            # compressed/forward or expanded/backward
+            multiplier = self.multiplier_high
         else:
-            state_info = "expanded"
-        self.gcode.respond_info("belay {}: {}".format(self.name, state_info))
+            # compressed/backward or expanded/forward
+            multiplier = self.multiplier_low
+        self.belay.set_multiplier(multiplier, print_msg=print_msg)
 
-    cmd_ENABLE_BELAY_help = "Enable Belay extrusion multiplier adjustment"
+    def handle_extrusion_direction_update(self, new_direction):
+        self.last_direction = new_direction
+        self._update_multiplier(print_msg=False)
 
-    def cmd_ENABLE_BELAY(self, gcmd):
-        self.user_disable = False
-        self.handle_enable()
-        if not self.enabled:
-            raise self.printer.command_error(
-                "Conditions not met to enable belay {}".format(self.name)
-            )
+    def handle_enable(self):
+        self._update_multiplier()
 
-    cmd_DISABLE_BELAY_help = "Disable Belay extrusion multiplier adjustment"
+    def handle_disable(self):
+        return
 
-    def cmd_DISABLE_BELAY(self, gcmd):
-        if gcmd.get_int("OVERRIDE", 0):
-            self.user_disable = True
-        self.handle_disable()
-        if self.enabled:
-            raise self.printer.command_error(
-                "Conditions not met to disable belay {}".format(self.name)
-            )
+    def get_state_description(self):
+        if self.last_state:
+            return "compressed"
+        return "expanded"
+
+    def get_dimensionless_position(self):
+        if self.last_state:
+            return 1.0
+        return -1.0
 
     cmd_BELAY_SET_MULTIPLIER_help = (
         "Sets multiplier_high and/or multiplier_low. Does not persist across"
@@ -268,25 +372,250 @@ class Belay:
             "LOW", self.multiplier_low, minval=0.0, maxval=1.0
         )
 
-    cmd_BELAY_CLEAR_OVERRIDE_help = (
-        "Clears any user override that would prevent the Belay from being"
-        " automatically enabled"
+
+SWITCH_COMPRESSION = 0
+SWITCH_EXPANSION = 1
+
+
+class DualDigitalSwitch(SliderSensor):
+    def __init__(self, config, belay):
+        self.printer = config.get_printer()
+        self.belay = belay
+
+        # register buttons
+        compression_sensor_pin = config.get("compression_sensor_pin")
+        expansion_sensor_pin = config.get("expansion_sensor_pin")
+        buttons = self.printer.load_object(config, "buttons")
+        buttons.register_buttons(
+            [compression_sensor_pin],
+            lambda e, s: self.sensor_callback(e, s, switch=SWITCH_COMPRESSION),
+        )
+        buttons.register_buttons(
+            [expansion_sensor_pin],
+            lambda e, s: self.sensor_callback(e, s, switch=SWITCH_EXPANSION),
+        )
+
+        # read other values
+        self.multiplier_high = config.getfloat(
+            "multiplier_high", default=1.05, minval=1.0
+        )
+        self.multiplier_low = config.getfloat(
+            "multiplier_low", default=0.95, minval=0.5, maxval=1.0
+        )
+        self.multiplier_mid = config.getfloat(
+            "multiplier_mid",
+            default=1.0,
+            minval=self.multiplier_low,
+            maxval=self.multiplier_high,
+        )
+
+        # other variables
+        self.last_state = [False, False]
+        self.last_direction = True
+        self.gcode = self.printer.lookup_object("gcode")
+
+        # register commands
+        gcode = self.printer.lookup_object("gcode")
+        gcode.register_mux_command(
+            "BELAY_SET_MULTIPLIER",
+            "BELAY",
+            self.belay.name,
+            self.cmd_BELAY_SET_MULTIPLIER,
+            desc=self.cmd_BELAY_SET_MULTIPLIER_help,
+        )
+
+    @classmethod
+    def get_name(cls):
+        return "dual_digital_switch"
+
+    def sensor_callback(self, eventtime, state, switch):
+        self.last_state[switch] = state
+        self._update_multiplier()
+
+    def _update_multiplier(self, print_msg=True):
+        if not self.belay.enabled:
+            return
+
+        if self.last_state[0] == self.last_state[1]:
+            # slider is in the middle zone
+            multiplier = self.multiplier_mid
+        else:
+            # slider is in one of the 2 outer zones
+            if self.last_state[SWITCH_COMPRESSION] == self.last_direction:
+                # compressed/forward or expanded/backward
+                multiplier = self.multiplier_high
+            else:
+                # compressed/backward or expanded/forward
+                multiplier = self.multiplier_low
+        self.belay.set_multiplier(multiplier, print_msg=print_msg)
+
+    def handle_extrusion_direction_update(self, new_direction):
+        self.last_direction = new_direction
+        self._update_multiplier(print_msg=False)
+
+    def handle_enable(self):
+        self._update_multiplier()
+
+    def handle_disable(self):
+        return
+
+    def get_state_description(self):
+        if self.last_state[0] == self.last_state[1]:
+            return "neutral"
+        if self.last_state[SWITCH_COMPRESSION]:
+            return "compressed"
+        return "expanded"
+
+    def get_dimensionless_position(self):
+        if self.last_state[0] == self.last_state[1]:
+            return 0.0
+        if self.last_state[SWITCH_COMPRESSION]:
+            return 1.0
+        return -1.0
+
+    cmd_BELAY_SET_MULTIPLIER_help = (
+        "Sets multiplier_high, multiplier_low, and/or multiplier_mid. Does not"
+        " persist across restarts."
     )
 
-    def cmd_BELAY_CLEAR_OVERRIDE(self, gcmd):
-        self.user_disable = False
+    def cmd_BELAY_SET_MULTIPLIER(self, gcmd):
+        self.multiplier_high = gcmd.get_float(
+            "HIGH", self.multiplier_high, minval=1.0
+        )
+        self.multiplier_low = gcmd.get_float(
+            "LOW", self.multiplier_low, minval=0.0, maxval=1.0
+        )
+        self.multiplier_mid = gcmd.get_float(
+            "MID",
+            self.multiplier_mid,
+            minval=self.multiplier_low,
+            maxval=self.multiplier_high,
+        )
+
+
+# Secondary extruders
+
+
+class SecondaryExtruder(NamedConfigOptionChoice, ABC):
+    @abstractmethod
+    def __init__(self, config, belay):
+        pass
+
+    def get_enable_events(self):
+        return []
+
+    def get_disable_events(self):
+        return []
+
+    def get_enable_conditions(self):
+        return []
+
+    def get_disable_conditions(self):
+        return []
+
+    @abstractmethod
+    def set_multiplier(self, multiplier):
+        pass
+
+
+class TradRack(SecondaryExtruder):
+    def __init__(self, config, belay):
+        self.printer = config.get_printer()
+        self.belay = belay
+
+        # register event handlers
+        self.printer.register_event_handler(
+            "klippy:connect", self.handle_connect
+        )
+
+        # other variables
+        self.set_multiplier_fn = None
+        self.enable_conditions = []
+        self.disable_conditions = []
+
+    def handle_connect(self):
+        trad_rack = self.printer.lookup_object("trad_rack")
+        self.set_multiplier_fn = trad_rack.set_fil_driver_multiplier
+        self.enable_conditions = [trad_rack.is_fil_driver_synced]
+        self.disable_conditions = [trad_rack.is_fil_driver_synced]
+
+    @classmethod
+    def get_name(cls):
+        return "trad_rack"
+
+    def get_enable_events(self):
+        return ["trad_rack:synced_to_extruder"]
+
+    def get_disable_events(self):
+        return ["trad_rack:unsyncing_from_extruder"]
+
+    def get_enable_conditions(self):
+        return self.enable_conditions
+
+    def get_disable_conditions(self):
+        return self.disable_conditions
+
+    def set_multiplier(self, multiplier):
+        self.set_multiplier_fn(multiplier)
+
+
+class ExtruderStepper(SecondaryExtruder):
+    def __init__(self, config, belay):
+        self.printer = config.get_printer()
+        self.belay = belay
+
+        # read extruder stepper name
+        self.extruder_stepper_name = config.get("extruder_stepper_name")
+
+        # register event handlers
+        self.printer.register_event_handler(
+            "klippy:connect", self.handle_connect
+        )
+
+        # register commands
+        gcode = self.printer.lookup_object("gcode")
+        gcode.register_mux_command(
+            "BELAY_SET_STEPPER",
+            "BELAY",
+            self.belay.name,
+            self.cmd_BELAY_SET_STEPPER,
+            desc=self.cmd_BELAY_SET_STEPPER_help,
+        )
+
+        # other variables
+        self.set_multiplier_fn = None
+
+    def handle_connect(self):
+        self._set_extruder_stepper(self.extruder_stepper_name)
+
+    def _set_extruder_stepper(self, extruder_stepper_name):
+        printer_extruder_stepper = self.printer.lookup_object(
+            "extruder_stepper {}".format(extruder_stepper_name)
+        )
+        stepper = printer_extruder_stepper.extruder_stepper.stepper
+        base_rotation_dist = stepper.get_rotation_distance()[0]
+        self.set_multiplier_fn = lambda m: stepper.set_rotation_distance(
+            base_rotation_dist / m
+        )
+
+    @classmethod
+    def get_name(cls):
+        return "extruder_stepper"
+
+    def get_enable_events(self):
+        return ["klippy:ready"]
+
+    def set_multiplier(self, multiplier):
+        self.set_multiplier_fn(multiplier)
 
     cmd_BELAY_SET_STEPPER_help = (
         "Select the extruder_stepper object to be controlled by the Belay"
     )
 
     def cmd_BELAY_SET_STEPPER(self, gcmd):
-        self.handle_disable()
+        self.belay.disable()
         self._set_extruder_stepper(gcmd.get("STEPPER"))
-        self.handle_enable()
-
-    def get_status(self, eventtime):
-        return {"last_state": self.last_state, "enabled": self.enabled}
+        self.belay.enable()
 
 
 def load_config_prefix(config):
