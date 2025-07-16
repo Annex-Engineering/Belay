@@ -55,10 +55,14 @@ class Belay:
         # other variables
         self.name = config.get_name().split()[1]
         self.enabled = False
+        self.user_disable = False
         self.last_state = False
         self.last_direction = True
         self.set_multiplier = None
-        self.enable_conditions = [lambda: not self.enabled]
+        self.enable_conditions = [
+            lambda: not self.enabled,
+            lambda: not self.user_disable,
+        ]
         self.disable_conditions = [lambda: self.enabled]
         self.gcode = self.printer.lookup_object("gcode")
         self.toolhead = None
@@ -82,6 +86,27 @@ class Belay:
             self.name,
             self.cmd_BELAY_SET_MULTIPLIER,
             desc=self.cmd_BELAY_SET_MULTIPLIER_help,
+        )
+        self.gcode.register_mux_command(
+            "ENABLE_BELAY",
+            "BELAY",
+            self.name,
+            self.cmd_ENABLE_BELAY,
+            desc=self.cmd_ENABLE_BELAY_help,
+        )
+        self.gcode.register_mux_command(
+            "DISABLE_BELAY",
+            "BELAY",
+            self.name,
+            self.cmd_DISABLE_BELAY,
+            desc=self.cmd_DISABLE_BELAY_help,
+        )
+        self.gcode.register_mux_command(
+            "BELAY_CLEAR_OVERRIDE",
+            "BELAY",
+            self.name,
+            self.cmd_BELAY_CLEAR_OVERRIDE,
+            desc=self.cmd_BELAY_CLEAR_OVERRIDE_help,
         )
 
         # register extruder_stepper-only commands
@@ -209,6 +234,27 @@ class Belay:
             state_info = "expanded"
         self.gcode.respond_info("belay {}: {}".format(self.name, state_info))
 
+    cmd_ENABLE_BELAY_help = "Enable Belay extrusion multiplier adjustment"
+
+    def cmd_ENABLE_BELAY(self, gcmd):
+        self.user_disable = False
+        self.handle_enable()
+        if not self.enabled:
+            raise self.printer.command_error(
+                "Conditions not met to enable belay {}".format(self.name)
+            )
+
+    cmd_DISABLE_BELAY_help = "Disable Belay extrusion multiplier adjustment"
+
+    def cmd_DISABLE_BELAY(self, gcmd):
+        if gcmd.get_int("OVERRIDE", 0):
+            self.user_disable = True
+        self.handle_disable()
+        if self.enabled:
+            raise self.printer.command_error(
+                "Conditions not met to disable belay {}".format(self.name)
+            )
+
     cmd_BELAY_SET_MULTIPLIER_help = (
         "Sets multiplier_high and/or multiplier_low. Does not persist across"
         " restarts."
@@ -221,6 +267,14 @@ class Belay:
         self.multiplier_low = gcmd.get_float(
             "LOW", self.multiplier_low, minval=0.0, maxval=1.0
         )
+
+    cmd_BELAY_CLEAR_OVERRIDE_help = (
+        "Clears any user override that would prevent the Belay from being"
+        " automatically enabled"
+    )
+
+    def cmd_BELAY_CLEAR_OVERRIDE(self, gcmd):
+        self.user_disable = False
 
     cmd_BELAY_SET_STEPPER_help = (
         "Select the extruder_stepper object to be controlled by the Belay"
