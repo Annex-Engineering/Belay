@@ -37,12 +37,23 @@ class Belay:
         enable_logging_initial = config.getboolean(
             "enable_logging", default=False
         )
+        log_restart_behavior_options = {
+            "replace": RESTART_BEHAVIOR_REPLACE,
+            "append": RESTART_BEHAVIOR_APPEND,
+            "new_file": RESTART_BEHAVIOR_NEW_FILE,
+        }
+        log_restart_behavior = config.getchoice(
+            "log_file_restart_behavior",
+            log_restart_behavior_options,
+            default="replace",
+        )
         self.logger = BelayLogger(
             log_file_path,
             log_update_interval,
             self.printer,
             lambda: self.enabled,
             active_initial=enable_logging_initial,
+            restart_behavior=log_restart_behavior,
         )
 
         # create slider sensor
@@ -434,6 +445,11 @@ class BelayNextCommandManager:
             raise self.printer.command_error("BELAY_NEXT command is inactive")
 
 
+RESTART_BEHAVIOR_REPLACE = 0
+RESTART_BEHAVIOR_APPEND = 1
+RESTART_BEHAVIOR_NEW_FILE = 2
+
+
 class BelayLogger:
     def __init__(
         self,
@@ -442,6 +458,7 @@ class BelayLogger:
         printer,
         is_belay_enabled,
         active_initial=False,
+        restart_behavior=RESTART_BEHAVIOR_REPLACE,
     ):
         self.file_path = file_path
         self.update_interval = update_interval
@@ -450,6 +467,7 @@ class BelayLogger:
         self.reactor = self.printer.get_reactor()
         self.gcode = self.printer.lookup_object("gcode")
         self.active_initial = active_initial
+        self.restart_behavior = restart_behavior
 
         # register evenat handlers
         printer.register_event_handler("klippy:ready", self.handle_ready)
@@ -480,39 +498,52 @@ class BelayLogger:
         header = header[1:] + "\n"
         self.row_str = self.row_str[1:] + "\n"
 
-        # check 1st line of file and write the header if it is not already
-        # there, or use a different file if there is an existing line that
-        # doesn't match
-        need_new_file = False
-        try:
-            with open(self.file_path, "r+") as f:
-                first_line = f.readline()
-                if first_line == "":
-                    f.write(header)
-                elif first_line != header:
-                    need_new_file = True
-            if need_new_file:
-                root, ext = self.file_path.splittext()
-                new_path = self.file_path
-                num = 1
-                while path.exists(new_path):
-                    new_path = "{}_{}{}".format(root, num, ext)
-                    num += 1
-                self.gcode.respond_info(
-                    "File '{}' already exists but its first line does not match"
-                    " the column headers. The file '{}' will be used instead.".format(
-                        self.file_path, new_path
-                    )
-                )
-                self.file_path = new_path
+        # modify file path if necessary and write the header line
+        if self.restart_behavior == RESTART_BEHAVIOR_REPLACE:
+            try:
                 with open(self.file_path, "w") as f:
                     f.write(header)
-        except IOError as e:
-            raise self.printer.command_error(
-                "Error reading or writing to file '%s': %s",
-                self.file_path,
-                str(e),
-            )
+            except IOError as e:
+                raise self.printer.command_error(
+                    "Error writing to file '{}': {}".format(self.file_path, e)
+                )
+        else:
+            root, ext = self.file_path.splittext()
+            new_path = self.file_path
+            num = 1
+            while True:
+                try:
+                    with open(new_path, "r+") as f:
+                        first_line = f.readline()
+                        if first_line == "":
+                            f.write(header)
+                            break
+                        if (
+                            self.restart_behavior == RESTART_BEHAVIOR_APPEND
+                            and first_line == header
+                        ):
+                            break
+                    new_path = "{}_{}{}".format(root, num, ext)
+                    num += 1
+                except IOError as e:
+                    raise self.printer.command_error(
+                        "Error reading or writing to file '{}': {}".format(
+                            new_path, e
+                        )
+                    )
+            if new_path != self.file_path:
+                if self.restart_behavior == RESTART_BEHAVIOR_APPEND:
+                    self.gcode.respond_info(
+                        "File '{}' already exists but its first line does not"
+                        " match the column headers. The file '{}' will be used"
+                        " instead.".format(self.file_path, new_path)
+                    )
+                else:
+                    self.gcode.respond_info(
+                        "File '{}' already exists. The file '{}' will be used"
+                        " instead.".format(self.file_path, new_path)
+                    )
+                self.file_path = new_path
 
         # start logging
         if self.active_initial:
@@ -566,7 +597,7 @@ class BelayLogger:
             self.log_file.write(self.row_str.format(**self.data))
         except IOError as e:
             raise self.printer.command_error(
-                "Error writing to file '%s': %s", self.file_path, str(e)
+                "Error writing to file '{}': {}".format(self.file_path, e)
             )
 
         # schedule next update
