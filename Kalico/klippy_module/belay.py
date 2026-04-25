@@ -679,7 +679,6 @@ class SingleDigitalSwitch(SliderSensor, NamedConfigOptionChoice):
         # other variables
         self.last_state = False
         self.last_direction = True
-        self.gcode = self.printer.lookup_object("gcode")
 
         # register commands
         gcode = self.printer.lookup_object("gcode")
@@ -784,7 +783,6 @@ class DualDigitalSwitch(SliderSensor, NamedConfigOptionChoice):
         # other variables
         self.last_state = [False, False]
         self.last_direction = True
-        self.gcode = self.printer.lookup_object("gcode")
 
         # register commands
         gcode = self.printer.lookup_object("gcode")
