@@ -6,6 +6,7 @@
 import math
 from abc import ABC, abstractmethod
 from collections import deque
+from os import path
 
 
 class Belay:
@@ -15,6 +16,34 @@ class Belay:
 
         # read name
         self.name = config.get_name().split()[1]
+
+        # create logger
+        log_file_path = path.expanduser(
+            config.get(
+                "log_file_path",
+                default="~/printer_data/logs/belay_{}.csv".format(self.name),
+            )
+        )
+        _, ext = path.splittext(log_file_path)
+        if ext != ".csv":
+            raise config.error(
+                "belay {}: option 'log_file_path' must end in '.csv'".format(
+                    self.name
+                )
+            )
+        log_update_interval = config.getfloat(
+            "log_update_interval", default=0.1, above=0.0
+        )
+        enable_logging_initial = config.getboolean(
+            "enable_logging", default=False
+        )
+        self.logger = BelayLogger(
+            log_file_path,
+            log_update_interval,
+            self.printer,
+            lambda: self.enabled,
+            active_initial=enable_logging_initial,
+        )
 
         # create slider sensor
         self.slider_sensor = get_selected_subclass(
@@ -54,6 +83,26 @@ class Belay:
             self.printer.register_event_handler(event, self.enable)
         for event in self.secondary_extruder.get_disable_events():
             self.printer.register_event_handler(event, self.disable)
+        self.printer.register_event_handler(
+            "klippy:connect", self.handle_connect
+        )
+
+        # add columns to logger
+        self.log_multiplier = self.logger.add_column(
+            "extruder_multiplier", 1.0, format=".6f"
+        )
+        log_net_flushed_moves_direction = self.logger.add_column(
+            "net_flushed_moves_direction", 1, format="d"
+        )
+        monitor.register_direction_update_handler(
+            lambda d: log_net_flushed_moves_direction(int(d))
+        )
+        self.logger.add_column(
+            "slider_dimensionless_position",
+            0.0,
+            format=".3f",
+            get_value_fn=lambda e: self.slider_sensor.get_dimensionless_position(),
+        )
 
         # read other values
         self.debug_level = config.getint(
@@ -102,6 +151,56 @@ class Belay:
             self.cmd_BELAY_NEXT,
             desc=self.cmd_BELAY_NEXT_help,
         )
+        self.gcode.register_mux_command(
+            "BELAY_START_LOGGING",
+            "BELAY",
+            self.name,
+            self.cmd_BELAY_START_LOGGING,
+            desc=self.cmd_BELAY_START_LOGGING,
+        )
+        self.gcode.register_mux_command(
+            "BELAY_STOP_LOGGING",
+            "BELAY",
+            self.name,
+            self.cmd_BELAY_STOP_LOGGING,
+            desc=self.cmd_BELAY_STOP_LOGGING,
+        )
+
+    def handle_connect(self):
+        # add additional printer-related columns to logger
+        mcu = self.printer.lookup_object("mcu")
+        toolhead = self.printer.lookup_object("toolhead")
+
+        self.logger.add_column(
+            "estimated_print_time",
+            0.0,
+            format=".3f",
+            get_value_fn=lambda e, m=mcu: m.estimated_print_time(e),
+        )
+        self.logger.add_column(
+            "toolhead_print_time",
+            0.0,
+            format=".3f",
+            get_value_fn=lambda e, t=toolhead: t.print_time,
+        )
+
+        def get_curr_e_position(eventtime):
+            est_print_time = mcu.estimated_print_time(eventtime)
+            extruder = toolhead.get_extruder()
+            return extruder.find_past_position(est_print_time)
+
+        self.logger.add_column(
+            "curr_e_position",
+            0.0,
+            format=".3f",
+            get_value_fn=get_curr_e_position,
+        )
+        self.logger.add_column(
+            "toolhead_e_position",
+            0.0,
+            format=".3f",
+            get_value_fn=lambda e, t=toolhead: t.get_position()[3],
+        )
 
     def enable(self):
         if (
@@ -129,6 +228,7 @@ class Belay:
             self.gcode.respond_info(
                 "Set secondary extruder multiplier: %f" % multiplier
             )
+        self.log_multiplier(multiplier)
 
     def reset_multiplier(self):
         self.set_multiplier(1.0, print_msg=False)
@@ -197,6 +297,17 @@ class Belay:
             raise self.printer.command_error(
                 "BELAY_NEXT command is inactive for belay {}".format(self.name)
             )
+
+    cmd_BELAY_START_LOGGING_help = "Start Belay logging"
+
+    def cmd_BELAY_START_LOGGING(self, gcmd):
+        duration = gcmd.get_float("DURATION", None, above=0.0)
+        self.logger.start_logging(duration=duration)
+
+    cmd_BELAY_STOP_LOGGING_help = "Stop Belay logging"
+
+    def cmd_BELAY_STOP_LOGGING(self, gcmd):
+        self.logger.stop_logging()
 
     def get_status(self, eventtime):
         status = {
@@ -321,6 +432,145 @@ class BelayNextCommandManager:
             self.belay_stack[-1].cmd_BELAY_NEXT(gcmd)
         except IndexError:
             raise self.printer.command_error("BELAY_NEXT command is inactive")
+
+
+class BelayLogger:
+    def __init__(
+        self,
+        file_path,
+        update_interval,
+        printer,
+        is_belay_enabled,
+        active_initial=False,
+    ):
+        self.file_path = file_path
+        self.update_interval = update_interval
+        self.printer = printer
+        self.is_belay_enabled = is_belay_enabled
+        self.reactor = self.printer.get_reactor()
+        self.gcode = self.printer.lookup_object("gcode")
+        self.active_initial = active_initial
+
+        # register evenat handlers
+        printer.register_event_handler("klippy:ready", self.handle_ready)
+
+        # other variables
+        self.update_timer = self.reactor.register_timer(self.update_log)
+        self.log_file = None
+        self.data = {}
+        self.formats = {}
+        self.data_callbacks = []
+        self.row_str = None
+        self.stop_time = None
+        self.columns_locked = False
+
+    def handle_ready(self):
+        # block additional columns from being added
+        self.columns_locked = True
+
+        # create header and row strings
+        header = ""
+        self.row_str = ""
+        col_names = self.formats.keys().sort()
+        for col_name in col_names:
+            header += ",{}".format(col_name)
+            self.row_str += ",{{{}:{}}}".format(
+                col_name, self.formats[col_name]
+            )
+        header = header[1:] + "\n"
+        self.row_str = self.row_str[1:] + "\n"
+
+        # check 1st line of file and write the header if it is not already
+        # there, or use a different file if there is an existing line that
+        # doesn't match
+        need_new_file = False
+        try:
+            with open(self.file_path, "r+") as f:
+                first_line = f.readline()
+                if first_line == "":
+                    f.write(header)
+                elif first_line != header:
+                    need_new_file = True
+            if need_new_file:
+                root, ext = self.file_path.splittext()
+                new_path = self.file_path
+                num = 1
+                while path.exists(new_path):
+                    new_path = "{}_{}{}".format(root, num, ext)
+                    num += 1
+                self.gcode.respond_info(
+                    "File '{}' already exists but its first line does not match"
+                    " the column headers. The file '{}' will be used instead.".format(
+                        self.file_path, new_path
+                    )
+                )
+                self.file_path = new_path
+                with open(self.file_path, "w") as f:
+                    f.write(header)
+        except IOError as e:
+            raise self.printer.command_error(
+                "Error reading or writing to file '%s': %s",
+                self.file_path,
+                str(e),
+            )
+
+        # start logging
+        if self.active_initial:
+            self.start_logging()
+
+    def add_column(self, name, initial_value, format="", get_value_fn=None):
+        if self.columns_locked:
+            raise Exception(
+                "Log columns cannot be added after the printer has reached the"
+                " 'ready' state"
+            )
+        self.data[name] = initial_value
+        self.formats[name] = format
+        if get_value_fn is not None:
+            self.data_callbacks.append(
+                lambda e, cn=name: self._update_column(cn, get_value_fn(e))
+            )
+        return lambda v, cn=name: self._update_column(cn, v)
+
+    def _update_column(self, column_name, value):
+        self.data[column_name] = value
+
+    def start_logging(self, duration=None):
+        if duration:
+            self.stop_time = self.reactor.monotonic() + duration
+        else:
+            self.stop_time = None
+        self.log_file = open(self.file_path, "a")
+        self.reactor.update_timer(self.update_timer, self.reactor.NOW)
+
+    def stop_logging(self):
+        self.stop_time = 0.0
+
+    def update_log(self, eventtime):
+        # skip writing if belay is disabled
+        if not self.is_belay_enabled():
+            return eventtime + self.update_interval
+
+        # skip writing, close file, and stop updates if logging stop time has
+        # been reached
+        if self.stop_time is not None and eventtime >= self.stop_time:
+            self.log_file.close()
+            return self.reactor.NEVER
+
+        # update any values that are not updated automatically
+        for callback in self.data_callbacks:
+            callback(eventtime)
+
+        # write a row of data
+        try:
+            self.log_file.write(self.row_str.format(**self.data))
+        except IOError as e:
+            raise self.printer.command_error(
+                "Error writing to file '%s': %s", self.file_path, str(e)
+            )
+
+        # schedule next update
+        return eventtime + self.update_interval
 
 
 class NamedConfigOptionChoice(ABC):
@@ -629,7 +879,7 @@ class AnalogSliderSensor(SliderSensor, NamedConfigOptionChoice):
             above=0.0,
         )
         self.controller = SliderPIDController(
-            config, slider_setpoint, multiplier_max_offset
+            config, slider_setpoint, multiplier_max_offset, self.belay.logger
         )
 
         # read other values
@@ -790,7 +1040,7 @@ class AnalogSliderSensor(SliderSensor, NamedConfigOptionChoice):
 
 
 class SliderPIDController:
-    def __init__(self, config, setpoint_initial, output_min_max_abs):
+    def __init__(self, config, setpoint_initial, output_min_max_abs, logger):
         self.slider_setpoint = setpoint_initial
         self.output_min_max_abs = output_min_max_abs
 
@@ -807,6 +1057,35 @@ class SliderPIDController:
             below=self.Ti,
         )
 
+        # add columns to logger
+        self.log_slider_pos = logger.add_column(
+            "slider_position", 0.0, format=".3f"
+        )
+        self.log_de = logger.add_column(
+            "controller_extruder_position_change", 0.0, format=".3f"
+        )
+        self.log_error = logger.add_column(
+            "controller_slider_position_error", 0.0, format=".3f"
+        )
+        self.log_setpoint = logger.add_column(
+            "controller_slider_setpoint", self.slider_setpoint, format=".3f"
+        )
+        self.log_p_term = logger.add_column(
+            "controller_P_term", 0.0, format=".6f"
+        )
+        self.log_i_term = logger.add_column(
+            "controller_I_term", 0.0, format=".6f"
+        )
+        self.log_d_term = logger.add_column(
+            "controller_D_term", 0.0, format=".6f"
+        )
+        self.log_raw_output = logger.add_column(
+            "controller_raw_output", 0.0, format=".6f"
+        )
+        self.log_output = logger.add_column(
+            "controller_output", 0.0, format=".6f"
+        )
+
         # other variables
         self.last_slider_pos = 0.0
         self.last_e_pos = 0.0
@@ -815,11 +1094,13 @@ class SliderPIDController:
         self.integral = 0.0
 
     def update(self, slider_pos, e_pos):
+        # calculate extruder position change and slider position error
         de = abs(e_pos - self.last_e_pos)
         if de == 0.0:
             return self.last_output
         error = self.slider_setpoint - slider_pos
 
+        # calculate PID terms and controller output
         proportional = self.Kp * error
         self.integral += self.Ki * (self.last_error + error) / 2.0 * de
         derivative = -self.Kd * (slider_pos - self.last_slider_pos) / de
@@ -829,6 +1110,18 @@ class SliderPIDController:
             self.output_min_max_abs,
         )
 
+        # log items
+        self.log_slider_pos(slider_pos)
+        self.log_de(de)
+        self.log_error(error)
+        self.log_setpoint(self.slider_setpoint)
+        self.log_p_term(proportional)
+        self.log_i_term(self.integral)
+        self.log_d_term(derivative)
+        self.log_raw_output(output_raw)
+        self.log_output(output_clamped)
+
+        # deal with integral windup and update state for next loop iteration
         self.integral += (output_clamped - output_raw) * de / max(self.Tt, de)
         self.last_slider_pos = slider_pos
         self.last_e_pos = e_pos
