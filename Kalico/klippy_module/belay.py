@@ -167,14 +167,14 @@ class Belay:
             "BELAY",
             self.name,
             self.cmd_BELAY_START_LOGGING,
-            desc=self.cmd_BELAY_START_LOGGING,
+            desc=self.cmd_BELAY_START_LOGGING_help,
         )
         self.gcode.register_mux_command(
             "BELAY_STOP_LOGGING",
             "BELAY",
             self.name,
             self.cmd_BELAY_STOP_LOGGING,
-            desc=self.cmd_BELAY_STOP_LOGGING,
+            desc=self.cmd_BELAY_STOP_LOGGING_help,
         )
 
     def handle_connect(self):
