@@ -489,12 +489,9 @@ class BelayLogger:
         # create header and row strings
         header = ""
         self.row_str = ""
-        col_names = self.formats.keys().sort()
-        for col_name in col_names:
+        for col_name, col_format in sorted(self.formats.items()):
             header += ",{}".format(col_name)
-            self.row_str += ",{{{}:{}}}".format(
-                col_name, self.formats[col_name]
-            )
+            self.row_str += ",{{{}:{}}}".format(col_name, col_format)
         header = header[1:] + "\n"
         self.row_str = self.row_str[1:] + "\n"
 
