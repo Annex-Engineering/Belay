@@ -890,7 +890,7 @@ class AnalogSliderSensor(SliderSensor, NamedConfigOptionChoice):
         control_loop_interval = config.getfloat(
             "control_loop_interval", default=0.1, above=0.0
         )
-        self.mcu_adc.setup_minmax(adc_sample_time, adc_sample_count)
+        self.mcu_adc.setup_adc_sample(adc_sample_time, adc_sample_count)
         self.mcu_adc.setup_adc_callback(
             control_loop_interval, self.adc_callback
         )
