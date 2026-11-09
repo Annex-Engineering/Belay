@@ -24,7 +24,7 @@ class Belay:
                 default="~/printer_data/logs/belay_{}.csv".format(self.name),
             )
         )
-        _, ext = path.splittext(log_file_path)
+        _, ext = path.splitext(log_file_path)
         if ext != ".csv":
             raise config.error(
                 "belay {}: option 'log_file_path' must end in '.csv'".format(
@@ -508,7 +508,7 @@ class BelayLogger:
                     "Error writing to file '{}': {}".format(self.file_path, e)
                 )
         else:
-            root, ext = self.file_path.splittext()
+            root, ext = path.splitext(self.file_path)
             new_path = self.file_path
             num = 1
             while True:
